@@ -1,289 +1,407 @@
 
 const canvas = document.getElementById("sonic");
+if (!canvas) throw new Error('Canvas mit id="sonic" wurde nicht gefunden.');
+
 const ctx = canvas.getContext("2d");
+const W = canvas.width;
+const H = canvas.height;
+const GROUND_Y = 430;
+const WORLD_W = 10000;
 
-ctx.imageSmoothingEnabled = false;
+const keys = {};
+const images = {};
 
-const breite = canvas.width;
-const hoehe = canvas.height;
+function load(name, path) {
+    const img = new Image();
+    img.onload = draw;
+    img.onerror = () => console.error("Bild nicht gefunden:", path);
+    img.src = path;
+    images[name] = img;
+    return img;
+}
 
-const welt = {
-    breite: 6000,
-    kameraX: 0,
-    bodenY: 455
-};
+for (let i = 1; i <= 4; i++) {
+    load(`idle${i}`, `picture/idle_0${i}.png`);
+}
+for (let i = 1; i <= 6; i++) {
+    load(`run${i}`, `picture/run_0${i}.png`);
+}
+for (let i = 1; i <= 4; i++) {
+    load(`fast${i}`, `picture/run_fast_0${i}.png`);
+}
+for (let i = 1; i <= 5; i++) {
+    load(`jump${i}`, `picture/jump_roll_0${i}.png`);
+}
 
-const tasten = {};
+for (let i = 1; i <= 67; i++) {
+    load(`tile${i}`, `picture/greenhill/${i}.png`);
+}
 
 const sonic = {
-    x: 120,
-    y: 0,
-    breite: 38,
-    hoehe: 56,
+    x: 100,
+    y: GROUND_Y - 54,
+    w: 42,
+    h: 54,
     vx: 0,
     vy: 0,
-    beschleunigung: 0.45,
-    maxSpeed: 7,
-    sprungkraft: -12,
-    amBoden: false,
-    richtung: 1,
-    animation: "idle",
-    frame: 0,
-    animationZeit: 0
+    grounded: true,
+    dir: 1
 };
 
-sonic.y = welt.bodenY - sonic.hoehe;
-
-function ladeFrames(prefix, anzahl) {
-    const frames = [];
-
-    for (let i = 1; i <= anzahl; i++) {
-        const bild = new Image();
-        bild.src = `assets/sonic/${prefix}_${String(i).padStart(2, "0")}.png`;
-        frames.push(bild);
-    }
-
-    return frames;
-}
-
-const animationen = {
-    idle: ladeFrames("idle", 4),
-    run: ladeFrames("run", 6),
-    run_fast: ladeFrames("run_fast", 4),
-    jump: ladeFrames("jump_roll", 5)
-};
-
-document.addEventListener("keydown", function(event) {
-    tasten[event.code] = true;
-
-    if (["ArrowLeft", "ArrowRight", "ArrowUp", "Space"].includes(event.code)) {
-        event.preventDefault();
-    }
-});
-
-document.addEventListener("keyup", function(event) {
-    tasten[event.code] = false;
-});
-
-const plattformen = [
-    { x: 550, y: 375, breite: 180 },
-    { x: 950, y: 330, breite: 180 },
-    { x: 1450, y: 385, breite: 220 },
-    { x: 1950, y: 340, breite: 200 },
-    { x: 2500, y: 300, breite: 220 },
-    { x: 3150, y: 370, breite: 240 },
-    { x: 3850, y: 320, breite: 220 },
-    { x: 4600, y: 375, breite: 300 },
-    { x: 5300, y: 330, breite: 240 }
+const platforms = [
+    { x: 650, y: 330, w: 190 },
+    { x: 1100, y: 290, w: 190 },
+    { x: 1600, y: 345, w: 220 },
+    { x: 2500, y: 315, w: 220 },
+    { x: 3300, y: 275, w: 220 },
+    { x: 4300, y: 330, w: 220 },
+    { x: 5200, y: 290, w: 240 },
+    { x: 6200, y: 325, w: 220 },
+    { x: 7300, y: 275, w: 250 },
+    { x: 8400, y: 320, w: 240 }
 ];
 
-function waehleAnimation(name) {
-    if (sonic.animation !== name) {
-        sonic.animation = name;
-        sonic.frame = 0;
-        sonic.animationZeit = 0;
+const loops = [
+    { x: 1850, width: 256, radius: 78 },
+    { x: 4550, width: 256, radius: 78 },
+    { x: 7550, width: 256, radius: 78 }
+];
+
+const rings = [];
+
+for (let x = 300; x < WORLD_W - 200; x += 95) {
+    rings.push({
+        x,
+        y: GROUND_Y - 75 - Math.sin(x * 0.006) * 20,
+        taken: false
+    });
+}
+
+for (const p of platforms) {
+    for (let i = 0; i < 5; i++) {
+        rings.push({
+            x: p.x + 30 + i * 32,
+            y: p.y - 35,
+            taken: false
+        });
     }
 }
 
-function bewegung(delta) {
-    const links = tasten["ArrowLeft"] || tasten["KeyA"];
-    const rechts = tasten["ArrowRight"] || tasten["KeyD"];
-    const springen = tasten["Space"] || tasten["ArrowUp"] || tasten["KeyW"];
+let camera = 0;
+let frame = 0;
+let ringCount = 0;
+let gameOver = false;
+let startTime = performance.now();
+let loopState = null;
 
-    const vorherUnten = sonic.y + sonic.hoehe;
-    const vorherVy = sonic.vy;
+const bestElement = document.getElementById("best");
+let best = Number(localStorage.getItem("sonicGreenHillBest") || 0);
+if (bestElement) bestElement.textContent = best;
 
-    if (links) {
-        sonic.vx -= sonic.beschleunigung * delta;
-        sonic.richtung = -1;
+window.addEventListener("keydown", e => {
+    const key = e.key.toLowerCase();
+    keys[key] = true;
+
+    if (["arrowleft", "arrowright", "arrowup", " "].includes(key)) {
+        e.preventDefault();
     }
-
-    if (rechts) {
-        sonic.vx += sonic.beschleunigung * delta;
-        sonic.richtung = 1;
-    }
-
-    if (!links && !rechts) {
-        sonic.vx *= Math.pow(0.82, delta);
-    }
-
-    sonic.vx = Math.max(-sonic.maxSpeed, Math.min(sonic.maxSpeed, sonic.vx));
-
-    if (Math.abs(sonic.vx) < 0.08) {
-        sonic.vx = 0;
-    }
-
-    if (springen && sonic.amBoden) {
-        sonic.vy = sonic.sprungkraft;
-        sonic.amBoden = false;
-    }
-
-    sonic.x += sonic.vx * delta;
-    sonic.x = Math.max(0, Math.min(welt.breite - sonic.breite, sonic.x));
-
-    sonic.vy += 0.55 * delta;
-    sonic.y += sonic.vy * delta;
-    sonic.amBoden = false;
 
     if (
-        vorherUnten <= welt.bodenY &&
-        sonic.y + sonic.hoehe >= welt.bodenY &&
-        sonic.vy >= 0
+        (key === " " || key === "arrowup" || key === "w") &&
+        sonic.grounded && !gameOver && !loopState
     ) {
-        sonic.y = welt.bodenY - sonic.hoehe;
-        sonic.vy = 0;
-        sonic.amBoden = true;
+        sonic.vy = -13.5;
+        sonic.grounded = false;
     }
 
-    for (const p of plattformen) {
-        const ueberlapptX =
-            sonic.x + sonic.breite > p.x &&
-            sonic.x < p.x + p.breite;
-
-        if (
-            ueberlapptX &&
-            vorherUnten <= p.y &&
-            sonic.y + sonic.hoehe >= p.y &&
-            vorherVy >= 0
-        ) {
-            sonic.y = p.y - sonic.hoehe;
-            sonic.vy = 0;
-            sonic.amBoden = true;
-        }
+    if (key === "r" && gameOver) {
+        location.reload();
     }
+});
 
-    if (!sonic.amBoden) {
-        waehleAnimation("jump");
-    } else if (Math.abs(sonic.vx) > 4.5) {
-        waehleAnimation("run_fast");
-    } else if (Math.abs(sonic.vx) > 0.3) {
-        waehleAnimation("run");
-    } else {
-        waehleAnimation("idle");
-    }
+window.addEventListener("keyup", e => {
+    keys[e.key.toLowerCase()] = false;
+});
 
-    welt.kameraX = sonic.x - 220;
-    welt.kameraX = Math.max(0, Math.min(welt.breite - breite, welt.kameraX));
+function ready(img) {
+    return img && img.complete && img.naturalWidth > 0;
 }
 
-function animationAktualisieren(delta) {
-    const frames = animationen[sonic.animation];
-
-    if (!frames || frames.length === 0) return;
-
-    const frameDauer = sonic.animation === "run_fast" ? 65 : 110;
-
-    sonic.animationZeit += delta * 16.67;
-
-    while (sonic.animationZeit >= frameDauer) {
-        sonic.animationZeit -= frameDauer;
-        sonic.frame = (sonic.frame + 1) % frames.length;
-    }
-}
-
-function hintergrundZeichnen() {
-    const himmel = ctx.createLinearGradient(0, 0, 0, hoehe);
-    himmel.addColorStop(0, "#35b9f4");
-    himmel.addColorStop(1, "#c0f5ff");
-
-    ctx.fillStyle = himmel;
-    ctx.fillRect(0, 0, breite, hoehe);
-
-    ctx.fillStyle = "#ffffff";
-
-    for (let i = 0; i < 9; i++) {
-        const x = ((i * 190 - welt.kameraX * 0.25) % 1800 + 1800) % 1800 - 100;
-        const y = 70 + (i % 3) * 55;
-
-        ctx.beginPath();
-        ctx.ellipse(x, y, 35, 14, 0, 0, Math.PI * 2);
-        ctx.ellipse(x + 25, y - 10, 25, 20, 0, 0, Math.PI * 2);
-        ctx.ellipse(x + 48, y, 32, 14, 0, 0, Math.PI * 2);
-        ctx.fill();
-    }
-
-    ctx.fillStyle = "#48bd49";
-
-    for (let i = 0; i < 15; i++) {
-        const x = ((i * 150 - welt.kameraX * 0.5) % 2100 + 2100) % 2100 - 100;
-
-        ctx.beginPath();
-        ctx.arc(x, welt.bodenY + 10, 75, Math.PI, 0);
-        ctx.fill();
-    }
-}
-
-function bodenZeichnen() {
-    ctx.fillStyle = "#c17a35";
-    ctx.fillRect(-welt.kameraX, welt.bodenY, welt.breite, hoehe - welt.bodenY);
-
-    ctx.fillStyle = "#36c957";
-    ctx.fillRect(-welt.kameraX, welt.bodenY, welt.breite, 14);
-
-    ctx.fillStyle = "#e7b45a";
-
-    for (let x = 0; x < welt.breite; x += 48) {
-        ctx.fillRect(x - welt.kameraX, welt.bodenY + 25, 24, 18);
-    }
-}
-
-function plattformenZeichnen() {
-    for (const p of plattformen) {
-        const x = p.x - welt.kameraX;
-
-        if (x + p.breite < 0 || x > breite) continue;
-
-        ctx.fillStyle = "#b97531";
-        ctx.fillRect(x, p.y, p.breite, 20);
-
-        ctx.fillStyle = "#42d45b";
-        ctx.fillRect(x, p.y, p.breite, 7);
-    }
-}
-
-function sonicZeichnen() {
-    const frames = animationen[sonic.animation];
-    if (!frames || frames.length === 0) return;
-
-    const bild = frames[sonic.frame];
-    if (!bild.complete || bild.naturalWidth === 0) return;
-
-    const zielHoehe = 76;
-    const zielBreite = bild.naturalWidth / bild.naturalHeight * zielHoehe;
-
-    const x = sonic.x - welt.kameraX;
-    const y = sonic.y + sonic.hoehe - zielHoehe;
+function drawImage(img, x, y, w, h, flip = false) {
+    if (!ready(img)) return;
 
     ctx.save();
 
-    if (sonic.richtung === -1) {
-        ctx.translate(x + zielBreite, 0);
+    if (flip) {
+        ctx.translate(x + w, 0);
         ctx.scale(-1, 1);
-        ctx.translate(-x, 0);
+        ctx.drawImage(img, 0, y, w, h);
+    } else {
+        ctx.drawImage(img, x, y, w, h);
     }
 
-    ctx.drawImage(bild, x, y, zielBreite, zielHoehe);
     ctx.restore();
 }
 
-function zeichnen() {
-    hintergrundZeichnen();
-    bodenZeichnen();
-    plattformenZeichnen();
-    sonicZeichnen();
+function drawBackground() {
+    ctx.fillStyle = "#70d8ff";
+    ctx.fillRect(0, 0, W, H);
+
+    const bg = images.tile61;
+    const offset = (camera * 0.2) % 256;
+
+    if (ready(bg)) {
+        for (let x = -offset - 256; x < W + 256; x += 256) {
+            ctx.drawImage(bg, 0, 0, 256, 150, x, 0, 256, 150);
+        }
+    }
+
+    ctx.fillStyle = "#79caff";
+    ctx.fillRect(0, 150, W, GROUND_Y - 150);
 }
 
-let letzteZeit = 0;
+function drawGround() {
+    const tile = images.tile60;
 
-function gameLoop(zeit) {
-    const delta = letzteZeit === 0 ? 1 : Math.min((zeit - letzteZeit) / 16.67, 2);
-    letzteZeit = zeit;
-
-    bewegung(delta);
-    animationAktualisieren(delta);
-    zeichnen();
-
-    requestAnimationFrame(spielSchleife);
+    if (ready(tile)) {
+        for (let x = -(camera % 256) - 256; x < W + 256; x += 256) {
+            ctx.drawImage(tile, x, GROUND_Y - 190, 256, 256);
+        }
+    } else {
+        ctx.fillStyle = "#9c5526";
+        ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+        ctx.fillStyle = "#35d344";
+        ctx.fillRect(0, GROUND_Y - 8, W, 8);
+    }
 }
 
-gameLoop(0);
+function drawPlatforms() {
+    for (const p of platforms) {
+        const x = p.x - camera;
+        if (x + p.w < 0 || x > W) continue;
+
+        ctx.fillStyle = "#35d344";
+        ctx.fillRect(x, p.y, p.w, 8);
+
+        ctx.fillStyle = "#9c5526";
+        ctx.fillRect(x, p.y + 8, p.w, 16);
+    }
+}
+
+function drawLoops() {
+    for (const l of loops) {
+        const x = l.x - camera;
+        if (x + l.width < 0 || x > W) continue;
+
+        drawImage(
+            images.tile53,
+            x,
+            GROUND_Y - 192,
+            l.width,
+            256
+        );
+    }
+}
+
+function drawRings() {
+    for (const r of rings) {
+        if (r.taken) continue;
+
+        const x = r.x - camera;
+        if (x < -20 || x > W + 20) continue;
+
+        ctx.beginPath();
+        ctx.ellipse(x, r.y, 8, 12, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = "#ffbd00";
+        ctx.lineWidth = 5;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.ellipse(x - 1, r.y, 4, 8, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = "#fff18a";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+}
+
+function drawSonic() {
+    let sprite;
+
+    if (loopState || !sonic.grounded) {
+        sprite = images[`jump${Math.floor(frame / 5) % 5 + 1}`];
+    } else if (Math.abs(sonic.vx) > 5) {
+        sprite = images[`fast${Math.floor(frame / 4) % 4 + 1}`];
+    } else if (Math.abs(sonic.vx) > 0.3) {
+        sprite = images[`run${Math.floor(frame / 5) % 6 + 1}`];
+    } else {
+        sprite = images[`idle${Math.floor(frame / 10) % 4 + 1}`];
+    }
+
+    if (ready(sprite)) {
+        drawImage(
+            sprite,
+            sonic.x - camera,
+            sonic.y,
+            sonic.w,
+            sonic.h,
+            sonic.dir < 0
+        );
+    }
+}
+
+function update() {
+    if (gameOver) return;
+
+    frame++;
+
+    const left = keys.arrowleft || keys.a;
+    const right = keys.arrowright || keys.d;
+
+    if (left && !right) {
+        sonic.vx = Math.max(-6.5, sonic.vx - 0.65);
+        sonic.dir = -1;
+    } else if (right && !left) {
+        sonic.vx = Math.min(6.5, sonic.vx + 0.65);
+        sonic.dir = 1;
+    } else {
+        sonic.vx *= 0.82;
+    }
+
+    if (loopState) {
+        const s = loopState;
+        s.angle += Math.max(0.055, Math.abs(sonic.vx) / s.loop.radius * 0.65);
+
+        const cx = s.loop.x + 128;
+        const cy = GROUND_Y - 96;
+        const r = s.loop.radius;
+
+        sonic.x = cx + Math.cos(s.angle) * r - sonic.w / 2;
+        sonic.y = cy + Math.sin(s.angle) * r - sonic.h / 2;
+
+        if (s.angle >= Math.PI * 2 + 2.8) {
+            sonic.x = s.loop.x + s.loop.width;
+            sonic.y = GROUND_Y - sonic.h;
+            sonic.vx = Math.max(5, sonic.vx);
+            sonic.vy = 0;
+            sonic.grounded = true;
+            loopState = null;
+        }
+    } else {
+        const oldBottom = sonic.y + sonic.h;
+
+        sonic.x += sonic.vx;
+        sonic.vy += 0.62;
+        sonic.y += sonic.vy;
+        sonic.grounded = false;
+
+        if (sonic.y + sonic.h >= GROUND_Y) {
+            sonic.y = GROUND_Y - sonic.h;
+            sonic.vy = 0;
+            sonic.grounded = true;
+        }
+
+        if (sonic.vy >= 0) {
+            for (const p of platforms) {
+                if (
+                    sonic.x + sonic.w > p.x &&
+                    sonic.x < p.x + p.w &&
+                    oldBottom <= p.y + 2 &&
+                    sonic.y + sonic.h >= p.y
+                ) {
+                    sonic.y = p.y - sonic.h;
+                    sonic.vy = 0;
+                    sonic.grounded = true;
+                }
+            }
+        }
+
+        for (const l of loops) {
+            if (
+                sonic.grounded &&
+                sonic.vx > 3.5 &&
+                sonic.x + sonic.w >= l.x + 30 &&
+                sonic.x < l.x + 70
+            ) {
+                loopState = { loop: l, angle: 2.8 };
+                sonic.vy = 0;
+                sonic.grounded = false;
+                break;
+            }
+        }
+    }
+
+    sonic.x = Math.max(0, Math.min(WORLD_W - sonic.w, sonic.x));
+
+    for (const r of rings) {
+        if (
+            !r.taken &&
+            Math.abs(sonic.x + sonic.w / 2 - r.x) < 25 &&
+            Math.abs(sonic.y + sonic.h / 2 - r.y) < 35
+        ) {
+            r.taken = true;
+            ringCount++;
+        }
+    }
+
+    camera = Math.max(0, Math.min(WORLD_W - W, sonic.x - W * 0.36));
+
+    const ringElement = document.getElementById("rings");
+    if (ringElement) ringElement.textContent = ringCount;
+
+    const timerElement = document.getElementById("timer");
+    if (timerElement) {
+        const seconds = Math.floor((performance.now() - startTime) / 1000);
+        timerElement.textContent =
+            `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+    }
+}
+
+function drawHUD() {
+    ctx.fillStyle = "#001b35cc";
+    ctx.fillRect(18, 16, 190, 42);
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 16px Arial";
+    ctx.fillText("RINGE: " + ringCount, 30, 42);
+
+    if (gameOver) {
+        ctx.fillStyle = "#00101bdd";
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.fillStyle = "#ffe23a";
+        ctx.font = "bold 48px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText("GAME OVER", W / 2, H / 2);
+
+        ctx.fillStyle = "#fff";
+        ctx.font = "20px Arial";
+        ctx.fillText("Drücke R zum Neustarten", W / 2, H / 2 + 40);
+        ctx.textAlign = "left";
+
+        if (ringCount > best) {
+            best = ringCount;
+            localStorage.setItem("sonicGreenHillBest", best);
+            if (bestElement) bestElement.textContent = best;
+        }
+    }
+}
+
+function draw() {
+    ctx.clearRect(0, 0, W, H);
+    drawBackground();
+    drawLoops();
+    drawGround();
+    drawPlatforms();
+    drawRings();
+    drawSonic();
+    drawHUD();
+}
+
+function gameLoop() {
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+}
+
+draw();
+gameLoop();

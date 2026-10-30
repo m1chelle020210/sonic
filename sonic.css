@@ -1,0 +1,22 @@
+#sonic{
+    background-color: cornflowerblue;
+}
+body{
+        margin: 0;
+        min-height: 100vh;
+        background: #10172b;
+        color: white;
+        font-family: Arial, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+}
+
+h1 {
+    color: #39a9ff;
+    font-size: 36px;
+    font-style: italic;
+    text-shadow: 3px 3px #003d9e;
+    margin-bottom: 20px;
+}

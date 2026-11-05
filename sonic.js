@@ -13,6 +13,22 @@ const GOAL_X = 9600;
 const keys = {};
 const images = {};
 
+let started = false;
+let camera = 0;
+let frame = 0;
+let ringCount = 0;
+let gameOver = false;
+let won = false;
+let startTime = 0;
+let loopState = null;
+
+const startButton = {
+    x: W / 2 - 115,
+    y: H / 2 + 25,
+    w: 230,
+    h: 65
+};
+
 function load(name, path) {
     const img = new Image();
     img.onload = draw;
@@ -91,18 +107,49 @@ for (const p of platforms) {
     }
 }
 
-let camera = 0;
-let frame = 0;
-let ringCount = 0;
-let gameOver = false;
-let won = false;
-let startTime = performance.now();
-let loopState = null;
-
 const bestElement = document.getElementById("best");
 let best = Number(localStorage.getItem("sonicGreenHillBest") || 0);
 
 if (bestElement) bestElement.textContent = best;
+
+// STARTBUTTON: direkt auf dem Canvas anklickbar
+canvas.style.cursor = "default";
+
+canvas.addEventListener("mousemove", e => {
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = (e.clientX - rect.left) * W / rect.width;
+    const mouseY = (e.clientY - rect.top) * H / rect.height;
+
+    const overButton =
+        mouseX >= startButton.x &&
+        mouseX <= startButton.x + startButton.w &&
+        mouseY >= startButton.y &&
+        mouseY <= startButton.y + startButton.h;
+
+    canvas.style.cursor =
+        !started && overButton ? "pointer" : "default";
+});
+
+canvas.addEventListener("click", e => {
+    if (started) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = (e.clientX - rect.left) * W / rect.width;
+    const mouseY = (e.clientY - rect.top) * H / rect.height;
+
+    const clickedButton =
+        mouseX >= startButton.x &&
+        mouseX <= startButton.x + startButton.w &&
+        mouseY >= startButton.y &&
+        mouseY <= startButton.y + startButton.h;
+
+    if (clickedButton) {
+        started = true;
+        startTime = performance.now();
+        canvas.style.cursor = "default";
+        draw();
+    }
+});
 
 window.addEventListener("keydown", e => {
     const key = e.key.toLowerCase();
@@ -110,6 +157,8 @@ window.addEventListener("keydown", e => {
     if (["arrowleft", "arrowright", "arrowup", " "].includes(key)) {
         e.preventDefault();
     }
+
+    if (!started) return;
 
     if ((gameOver || won) && key === "r") {
         location.reload();
@@ -275,28 +324,25 @@ function drawEnemy(enemy) {
 
     ctx.save();
 
-    const facingLeft = enemy.vx < 0;
-    ctx.translate(x + 17, 0);
-    if (facingLeft) ctx.scale(-1, 1);
-    ctx.translate(-(x + 17), 0);
+    if (enemy.vx < 0) {
+        ctx.translate(x + 34, 0);
+        ctx.scale(-1, 1);
+        ctx.translate(-x, 0);
+    }
 
-    // Kleine Roboterfüße
     ctx.fillStyle = "#25283c";
     ctx.fillRect(x + 3, y + 25, 10, 7);
     ctx.fillRect(x + 21, y + 25, 10, 7);
 
-    // Roter Roboterkörper
     ctx.fillStyle = "#d92d35";
     ctx.fillRect(x + 3, y + 9, 28, 19);
 
-    // Metallpanzer
     ctx.fillStyle = "#a9b5c5";
     ctx.fillRect(x + 6, y + 4, 22, 14);
 
     ctx.fillStyle = "#697b92";
     ctx.fillRect(x + 8, y + 2, 18, 5);
 
-    // Augen
     ctx.fillStyle = "#fff";
     ctx.fillRect(x + 10, y + 7, 6, 6);
     ctx.fillRect(x + 20, y + 7, 6, 6);
@@ -305,12 +351,10 @@ function drawEnemy(enemy) {
     ctx.fillRect(x + 13, y + 9, 3, 4);
     ctx.fillRect(x + 21, y + 9, 3, 4);
 
-    // Seitliche Metallteile
     ctx.fillStyle = "#d8e0ea";
     ctx.fillRect(x, y + 14, 5, 8);
     ctx.fillRect(x + 29, y + 14, 5, 8);
 
-    // Kleine Antenne
     ctx.fillStyle = "#ffd447";
     ctx.fillRect(x + 16, y - 3, 3, 6);
     ctx.beginPath();
@@ -321,9 +365,7 @@ function drawEnemy(enemy) {
 }
 
 function drawEnemies() {
-    for (const enemy of enemies) {
-        drawEnemy(enemy);
-    }
+    for (const enemy of enemies) drawEnemy(enemy);
 }
 
 function drawGoal() {
@@ -331,7 +373,6 @@ function drawGoal() {
 
     if (x < -100 || x > W + 100) return;
 
-    // Zielpfosten
     ctx.fillStyle = "#e7e7e7";
     ctx.fillRect(x, GROUND_Y - 105, 7, 105);
 
@@ -340,7 +381,6 @@ function drawGoal() {
     ctx.arc(x + 3.5, GROUND_Y - 108, 8, 0, Math.PI * 2);
     ctx.fill();
 
-    // Zielflagge
     ctx.fillStyle = "#ed3030";
     ctx.beginPath();
     ctx.moveTo(x + 7, GROUND_Y - 100);
@@ -448,20 +488,14 @@ function checkEnemyCollisions(oldBottom) {
     for (const enemy of enemies) {
         if (!enemy.alive) continue;
 
-        const sonicRight = sonic.x + sonic.w;
-        const sonicBottom = sonic.y + sonic.h;
-        const enemyRight = enemy.x + 34;
-        const enemyBottom = enemy.y + 32;
-
         const touching =
-            sonicRight > enemy.x + 3 &&
-            sonic.x < enemyRight &&
-            sonicBottom > enemy.y + 3 &&
-            sonic.y < enemyBottom;
+            sonic.x + sonic.w > enemy.x + 3 &&
+            sonic.x < enemy.x + 34 &&
+            sonic.y + sonic.h > enemy.y + 3 &&
+            sonic.y < enemy.y + 32;
 
         if (!touching) continue;
 
-        // Von oben auf den Roboter springen
         if (sonic.vy > 0 && oldBottom <= enemy.y + 12) {
             enemy.alive = false;
             sonic.y = enemy.y - sonic.h;
@@ -474,7 +508,7 @@ function checkEnemyCollisions(oldBottom) {
 }
 
 function update() {
-    if (gameOver || won) return;
+    if (!started || gameOver || won) return;
 
     frame++;
 
@@ -533,20 +567,12 @@ function update() {
             const leftEntry = l.x + 30;
             const rightEntry = l.x + l.width - 30;
 
-            if (
-                sonic.vx > 0 &&
-                oldCenter < leftEntry &&
-                center >= leftEntry
-            ) {
+            if (sonic.vx > 0 && oldCenter < leftEntry && center >= leftEntry) {
                 startLoop(l, 1);
                 break;
             }
 
-            if (
-                sonic.vx < 0 &&
-                oldCenter > rightEntry &&
-                center <= rightEntry
-            ) {
+            if (sonic.vx < 0 && oldCenter > rightEntry && center <= rightEntry) {
                 startLoop(l, -1);
                 break;
             }
@@ -596,6 +622,75 @@ function saveBest() {
     }
 }
 
+function drawStartScreen() {
+    // Hintergrund
+    ctx.fillStyle = "#0800a8";
+    ctx.fillRect(0, 0, W, H);
+
+    // Himmel und Green-Hill-Hintergrund
+    if (ready(images.tile67)) {
+        ctx.drawImage(images.tile67, 0, 0, W, H);
+    }
+
+    // Dunkle Ebene für gut lesbaren Text
+    ctx.fillStyle = "rgba(0, 10, 45, 0.58)";
+    ctx.fillRect(0, 0, W, H);
+
+    // Titel
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#ffffff";
+    ctx.font = `bold ${Math.min(58, W * 0.075)}px Arial`;
+    ctx.shadowColor = "#00bfff";
+    ctx.shadowBlur = 18;
+    ctx.fillText("SONIC", W / 2, H / 2 - 75);
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "#ffe23a";
+    ctx.font = `bold ${Math.min(25, W * 0.035)}px Arial`;
+    ctx.fillText("GREEN HILL ZONE", W / 2, H / 2 - 38);
+
+    // Button
+    ctx.fillStyle = "#e92d35";
+    ctx.fillRect(
+        startButton.x,
+        startButton.y,
+        startButton.w,
+        startButton.h
+    );
+
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(
+        startButton.x,
+        startButton.y,
+        startButton.w,
+        startButton.h
+    );
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 25px Arial";
+    ctx.fillText(
+        "START GAME",
+        startButton.x + startButton.w / 2,
+        startButton.y + 40
+    );
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "16px Arial";
+    ctx.fillText(
+        "A / D oder Pfeiltasten = Laufen",
+        W / 2,
+        startButton.y + startButton.h + 38
+    );
+    ctx.fillText(
+        "Leertaste = Springen",
+        W / 2,
+        startButton.y + startButton.h + 62
+    );
+
+    ctx.textAlign = "left";
+}
+
 function drawHUD() {
     ctx.fillStyle = "#001b35cc";
     ctx.fillRect(18, 16, 190, 42);
@@ -635,6 +730,11 @@ function drawHUD() {
 
 function draw() {
     ctx.clearRect(0, 0, W, H);
+
+    if (!started) {
+        drawStartScreen();
+        return;
+    }
 
     drawBackground();
     drawGround();

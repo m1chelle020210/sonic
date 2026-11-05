@@ -1,12 +1,14 @@
 
 const canvas = document.getElementById("sonic");
+
 if (!canvas) throw new Error('Canvas mit id="sonic" wurde nicht gefunden.');
 
 const ctx = canvas.getContext("2d");
 const W = canvas.width;
 const H = canvas.height;
-const GROUND_Y = 430;
+const GROUND_Y = H - 80;
 const WORLD_W = 10000;
+const GOAL_X = 9600;
 
 const keys = {};
 const images = {};
@@ -20,22 +22,11 @@ function load(name, path) {
     return img;
 }
 
-for (let i = 1; i <= 4; i++) {
-    load(`idle${i}`, `picture/idle_0${i}.png`);
-}
-for (let i = 1; i <= 6; i++) {
-    load(`run${i}`, `picture/run_0${i}.png`);
-}
-for (let i = 1; i <= 4; i++) {
-    load(`fast${i}`, `picture/run_fast_0${i}.png`);
-}
-for (let i = 1; i <= 5; i++) {
-    load(`jump${i}`, `picture/jump_roll_0${i}.png`);
-}
-
-for (let i = 1; i <= 67; i++) {
-    load(`tile${i}`, `picture/greenhill/${i}.png`);
-}
+for (let i = 1; i <= 4; i++) load(`idle${i}`, `picture/idle_0${i}.png`);
+for (let i = 1; i <= 6; i++) load(`run${i}`, `picture/run_0${i}.png`);
+for (let i = 1; i <= 4; i++) load(`fast${i}`, `picture/run_fast_0${i}.png`);
+for (let i = 1; i <= 5; i++) load(`jump${i}`, `picture/jump_roll_0${i}.png`);
+for (let i = 1; i <= 67; i++) load(`tile${i}`, `picture/greenhill/${i}.png`);
 
 const sonic = {
     x: 100,
@@ -49,22 +40,35 @@ const sonic = {
 };
 
 const platforms = [
-    { x: 650, y: 330, w: 190 },
-    { x: 1100, y: 290, w: 190 },
-    { x: 1600, y: 345, w: 220 },
-    { x: 2500, y: 315, w: 220 },
-    { x: 3300, y: 275, w: 220 },
-    { x: 4300, y: 330, w: 220 },
-    { x: 5200, y: 290, w: 240 },
-    { x: 6200, y: 325, w: 220 },
-    { x: 7300, y: 275, w: 250 },
-    { x: 8400, y: 320, w: 240 }
+    { x: 650, y: GROUND_Y - 100, w: 190 },
+    { x: 1100, y: GROUND_Y - 140, w: 190 },
+    { x: 1600, y: GROUND_Y - 85, w: 220 },
+    { x: 2500, y: GROUND_Y - 115, w: 220 },
+    { x: 3300, y: GROUND_Y - 155, w: 220 },
+    { x: 4300, y: GROUND_Y - 100, w: 220 },
+    { x: 5200, y: GROUND_Y - 140, w: 240 },
+    { x: 6200, y: GROUND_Y - 105, w: 220 },
+    { x: 7300, y: GROUND_Y - 155, w: 250 },
+    { x: 8400, y: GROUND_Y - 110, w: 240 }
 ];
 
 const loops = [
     { x: 1850, width: 256, radius: 78 },
     { x: 4550, width: 256, radius: 78 },
     { x: 7550, width: 256, radius: 78 }
+];
+
+const enemies = [
+    { x: 900, start: 850, end: 1030, y: GROUND_Y - 34, vx: 1.3, alive: true },
+    { x: 1450, start: 1360, end: 1530, y: GROUND_Y - 34, vx: -1.5, alive: true },
+    { x: 2200, start: 2100, end: 2310, y: GROUND_Y - 34, vx: 1.6, alive: true },
+    { x: 2950, start: 2850, end: 3100, y: GROUND_Y - 34, vx: -1.4, alive: true },
+    { x: 3850, start: 3750, end: 3990, y: GROUND_Y - 34, vx: 1.7, alive: true },
+    { x: 4900, start: 4800, end: 5040, y: GROUND_Y - 34, vx: -1.5, alive: true },
+    { x: 5800, start: 5680, end: 5920, y: GROUND_Y - 34, vx: 1.8, alive: true },
+    { x: 6800, start: 6700, end: 6920, y: GROUND_Y - 34, vx: -1.6, alive: true },
+    { x: 7900, start: 7800, end: 8030, y: GROUND_Y - 34, vx: 1.5, alive: true },
+    { x: 9000, start: 8890, end: 9120, y: GROUND_Y - 34, vx: -1.7, alive: true }
 ];
 
 const rings = [];
@@ -91,40 +95,52 @@ let camera = 0;
 let frame = 0;
 let ringCount = 0;
 let gameOver = false;
+let won = false;
 let startTime = performance.now();
 let loopState = null;
 
 const bestElement = document.getElementById("best");
 let best = Number(localStorage.getItem("sonicGreenHillBest") || 0);
+
 if (bestElement) bestElement.textContent = best;
 
 window.addEventListener("keydown", e => {
     const key = e.key.toLowerCase();
-    keys[key] = true;
 
     if (["arrowleft", "arrowright", "arrowup", " "].includes(key)) {
         e.preventDefault();
     }
 
+    if ((gameOver || won) && key === "r") {
+        location.reload();
+        return;
+    }
+
+    if (gameOver || won) return;
+
     if (
+        !keys[key] &&
         (key === " " || key === "arrowup" || key === "w") &&
-        sonic.grounded && !gameOver && !loopState
+        sonic.grounded &&
+        !loopState
     ) {
         sonic.vy = -13.5;
         sonic.grounded = false;
     }
 
-    if (key === "r" && gameOver) {
-        location.reload();
-    }
+    keys[key] = true;
 });
 
 window.addEventListener("keyup", e => {
     keys[e.key.toLowerCase()] = false;
 });
 
+window.addEventListener("blur", () => {
+    for (const key in keys) keys[key] = false;
+});
+
 function ready(img) {
-    return img && img.complete && img.naturalWidth > 0;
+    return !!img && img.complete && img.naturalWidth > 0;
 }
 
 function drawImage(img, x, y, w, h, flip = false) {
@@ -144,53 +160,77 @@ function drawImage(img, x, y, w, h, flip = false) {
 }
 
 function drawBackground() {
-    ctx.fillStyle = "#70d8ff";
+    ctx.fillStyle = "#0800a8";
     ctx.fillRect(0, 0, W, H);
 
-    const bg = images.tile61;
-    const offset = (camera * 0.2) % 256;
+    const bg = images.tile67;
 
     if (ready(bg)) {
-        for (let x = -offset - 256; x < W + 256; x += 256) {
-            ctx.drawImage(bg, 0, 0, 256, 150, x, 0, 256, 150);
-        }
+        ctx.drawImage(bg, 0, 0, W, GROUND_Y + 20);
     }
-
-    ctx.fillStyle = "#79caff";
-    ctx.fillRect(0, 150, W, GROUND_Y - 150);
 }
 
 function drawGround() {
-    const tile = images.tile60;
+    const ground = images.tile59;
+    const tileW = 256;
+    const tileH = 256;
+    const offset = camera % tileW;
 
-    if (ready(tile)) {
-        for (let x = -(camera % 256) - 256; x < W + 256; x += 256) {
-            ctx.drawImage(tile, x, GROUND_Y - 190, 256, 256);
+    if (ready(ground)) {
+        for (let x = -offset - tileW; x < W + tileW; x += tileW) {
+            ctx.drawImage(
+                ground,
+                x,
+                GROUND_Y - 126,
+                tileW,
+                tileH
+            );
         }
     } else {
-        ctx.fillStyle = "#9c5526";
+        ctx.fillStyle = "#995126";
         ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
-        ctx.fillStyle = "#35d344";
-        ctx.fillRect(0, GROUND_Y - 8, W, 8);
+
+        ctx.fillStyle = "#35df45";
+        ctx.fillRect(0, GROUND_Y - 2, W, 4);
     }
 }
 
 function drawPlatforms() {
+    const tile = images.tile60;
+
     for (const p of platforms) {
         const x = p.x - camera;
+
         if (x + p.w < 0 || x > W) continue;
 
-        ctx.fillStyle = "#35d344";
-        ctx.fillRect(x, p.y, p.w, 8);
+        if (ready(tile)) {
+            const platformHeight = 100;
 
-        ctx.fillStyle = "#9c5526";
-        ctx.fillRect(x, p.y + 8, p.w, 16);
+            ctx.drawImage(
+                tile,
+                0,
+                0,
+                tile.naturalWidth,
+                tile.naturalHeight,
+                x,
+                p.y - platformHeight * 0.75,
+                p.w,
+                platformHeight
+            );
+        } else {
+            ctx.fillStyle = "#35df45";
+            ctx.fillRect(x, p.y, p.w, 6);
+
+            ctx.fillStyle = "#995126";
+            ctx.fillRect(x, p.y + 6, p.w, 34);
+        }
     }
 }
 
 function drawLoops() {
     for (const l of loops) {
         const x = l.x - camera;
+
         if (x + l.width < 0 || x > W) continue;
 
         drawImage(
@@ -208,6 +248,7 @@ function drawRings() {
         if (r.taken) continue;
 
         const x = r.x - camera;
+
         if (x < -20 || x > W + 20) continue;
 
         ctx.beginPath();
@@ -222,6 +263,95 @@ function drawRings() {
         ctx.lineWidth = 2;
         ctx.stroke();
     }
+}
+
+function drawEnemy(enemy) {
+    if (!enemy.alive) return;
+
+    const x = enemy.x - camera;
+    const y = enemy.y;
+
+    if (x < -50 || x > W + 50) return;
+
+    ctx.save();
+
+    const facingLeft = enemy.vx < 0;
+    ctx.translate(x + 17, 0);
+    if (facingLeft) ctx.scale(-1, 1);
+    ctx.translate(-(x + 17), 0);
+
+    // Kleine Roboterfüße
+    ctx.fillStyle = "#25283c";
+    ctx.fillRect(x + 3, y + 25, 10, 7);
+    ctx.fillRect(x + 21, y + 25, 10, 7);
+
+    // Roter Roboterkörper
+    ctx.fillStyle = "#d92d35";
+    ctx.fillRect(x + 3, y + 9, 28, 19);
+
+    // Metallpanzer
+    ctx.fillStyle = "#a9b5c5";
+    ctx.fillRect(x + 6, y + 4, 22, 14);
+
+    ctx.fillStyle = "#697b92";
+    ctx.fillRect(x + 8, y + 2, 18, 5);
+
+    // Augen
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(x + 10, y + 7, 6, 6);
+    ctx.fillRect(x + 20, y + 7, 6, 6);
+
+    ctx.fillStyle = "#171b29";
+    ctx.fillRect(x + 13, y + 9, 3, 4);
+    ctx.fillRect(x + 21, y + 9, 3, 4);
+
+    // Seitliche Metallteile
+    ctx.fillStyle = "#d8e0ea";
+    ctx.fillRect(x, y + 14, 5, 8);
+    ctx.fillRect(x + 29, y + 14, 5, 8);
+
+    // Kleine Antenne
+    ctx.fillStyle = "#ffd447";
+    ctx.fillRect(x + 16, y - 3, 3, 6);
+    ctx.beginPath();
+    ctx.arc(x + 17.5, y - 4, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+}
+
+function drawEnemies() {
+    for (const enemy of enemies) {
+        drawEnemy(enemy);
+    }
+}
+
+function drawGoal() {
+    const x = GOAL_X - camera;
+
+    if (x < -100 || x > W + 100) return;
+
+    // Zielpfosten
+    ctx.fillStyle = "#e7e7e7";
+    ctx.fillRect(x, GROUND_Y - 105, 7, 105);
+
+    ctx.fillStyle = "#ffe044";
+    ctx.beginPath();
+    ctx.arc(x + 3.5, GROUND_Y - 108, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Zielflagge
+    ctx.fillStyle = "#ed3030";
+    ctx.beginPath();
+    ctx.moveTo(x + 7, GROUND_Y - 100);
+    ctx.lineTo(x + 54, GROUND_Y - 85);
+    ctx.lineTo(x + 7, GROUND_Y - 70);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 12px Arial";
+    ctx.fillText("GOAL", x + 10, GROUND_Y - 84);
 }
 
 function drawSonic() {
@@ -249,45 +379,125 @@ function drawSonic() {
     }
 }
 
+function startLoop(l, direction) {
+    const r = l.radius;
+    const cx = l.x + l.width / 2;
+    const cy = GROUND_Y - r - sonic.h / 2;
+
+    loopState = {
+        loop: l,
+        direction,
+        rotation: direction > 0 ? -1 : 1,
+        angle: direction > 0 ? Math.PI * 0.75 : Math.PI * 0.25,
+        cx,
+        cy,
+        r,
+        speed: Math.max(Math.abs(sonic.vx), 4.5),
+        travelled: 0
+    };
+
+    sonic.vy = 0;
+    sonic.grounded = false;
+}
+
+function updateLoop() {
+    const s = loopState;
+    if (!s) return;
+
+    const step = Math.min(0.13, s.speed / s.r);
+
+    s.angle += s.rotation * step;
+    s.travelled += step;
+
+    sonic.x = s.cx + Math.cos(s.angle) * s.r - sonic.w / 2;
+    sonic.y = s.cy + Math.sin(s.angle) * s.r - sonic.h / 2;
+    sonic.dir = s.direction;
+
+    if (s.travelled >= Math.PI * 2) {
+        sonic.x = s.direction > 0
+            ? s.loop.x + s.loop.width
+            : s.loop.x - sonic.w;
+
+        sonic.y = GROUND_Y - sonic.h;
+        sonic.vx = s.direction * Math.max(s.speed, 5);
+        sonic.vy = 0;
+        sonic.grounded = true;
+        loopState = null;
+    }
+}
+
+function updateEnemies() {
+    for (const enemy of enemies) {
+        if (!enemy.alive) continue;
+
+        enemy.x += enemy.vx;
+
+        if (enemy.x <= enemy.start) {
+            enemy.x = enemy.start;
+            enemy.vx = Math.abs(enemy.vx);
+        }
+
+        if (enemy.x >= enemy.end) {
+            enemy.x = enemy.end;
+            enemy.vx = -Math.abs(enemy.vx);
+        }
+    }
+}
+
+function checkEnemyCollisions(oldBottom) {
+    for (const enemy of enemies) {
+        if (!enemy.alive) continue;
+
+        const sonicRight = sonic.x + sonic.w;
+        const sonicBottom = sonic.y + sonic.h;
+        const enemyRight = enemy.x + 34;
+        const enemyBottom = enemy.y + 32;
+
+        const touching =
+            sonicRight > enemy.x + 3 &&
+            sonic.x < enemyRight &&
+            sonicBottom > enemy.y + 3 &&
+            sonic.y < enemyBottom;
+
+        if (!touching) continue;
+
+        // Von oben auf den Roboter springen
+        if (sonic.vy > 0 && oldBottom <= enemy.y + 12) {
+            enemy.alive = false;
+            sonic.y = enemy.y - sonic.h;
+            sonic.vy = -9;
+            sonic.grounded = false;
+        } else {
+            gameOver = true;
+        }
+    }
+}
+
 function update() {
-    if (gameOver) return;
+    if (gameOver || won) return;
 
     frame++;
 
     const left = keys.arrowleft || keys.a;
     const right = keys.arrowright || keys.d;
 
-    if (left && !right) {
-        sonic.vx = Math.max(-6.5, sonic.vx - 0.65);
-        sonic.dir = -1;
-    } else if (right && !left) {
-        sonic.vx = Math.min(6.5, sonic.vx + 0.65);
-        sonic.dir = 1;
-    } else {
-        sonic.vx *= 0.82;
-    }
+    updateEnemies();
 
     if (loopState) {
-        const s = loopState;
-        s.angle += Math.max(0.055, Math.abs(sonic.vx) / s.loop.radius * 0.65);
-
-        const cx = s.loop.x + 128;
-        const cy = GROUND_Y - 96;
-        const r = s.loop.radius;
-
-        sonic.x = cx + Math.cos(s.angle) * r - sonic.w / 2;
-        sonic.y = cy + Math.sin(s.angle) * r - sonic.h / 2;
-
-        if (s.angle >= Math.PI * 2 + 2.8) {
-            sonic.x = s.loop.x + s.loop.width;
-            sonic.y = GROUND_Y - sonic.h;
-            sonic.vx = Math.max(5, sonic.vx);
-            sonic.vy = 0;
-            sonic.grounded = true;
-            loopState = null;
-        }
+        updateLoop();
     } else {
+        if (left && !right) {
+            sonic.vx = Math.max(-6.5, sonic.vx - 0.65);
+            sonic.dir = -1;
+        } else if (right && !left) {
+            sonic.vx = Math.min(6.5, sonic.vx + 0.65);
+            sonic.dir = 1;
+        } else {
+            sonic.vx *= 0.82;
+        }
+
         const oldBottom = sonic.y + sonic.h;
+        const oldX = sonic.x;
 
         sonic.x += sonic.vx;
         sonic.vy += 0.62;
@@ -316,18 +526,33 @@ function update() {
         }
 
         for (const l of loops) {
+            if (!sonic.grounded || Math.abs(sonic.vx) < 3.5) continue;
+
+            const oldCenter = oldX + sonic.w / 2;
+            const center = sonic.x + sonic.w / 2;
+            const leftEntry = l.x + 30;
+            const rightEntry = l.x + l.width - 30;
+
             if (
-                sonic.grounded &&
-                sonic.vx > 3.5 &&
-                sonic.x + sonic.w >= l.x + 30 &&
-                sonic.x < l.x + 70
+                sonic.vx > 0 &&
+                oldCenter < leftEntry &&
+                center >= leftEntry
             ) {
-                loopState = { loop: l, angle: 2.8 };
-                sonic.vy = 0;
-                sonic.grounded = false;
+                startLoop(l, 1);
+                break;
+            }
+
+            if (
+                sonic.vx < 0 &&
+                oldCenter > rightEntry &&
+                center <= rightEntry
+            ) {
+                startLoop(l, -1);
                 break;
             }
         }
+
+        checkEnemyCollisions(oldBottom);
     }
 
     sonic.x = Math.max(0, Math.min(WORLD_W - sonic.w, sonic.x));
@@ -343,16 +568,31 @@ function update() {
         }
     }
 
+    if (sonic.x + sonic.w >= GOAL_X) {
+        won = true;
+        saveBest();
+    }
+
     camera = Math.max(0, Math.min(WORLD_W - W, sonic.x - W * 0.36));
 
     const ringElement = document.getElementById("rings");
     if (ringElement) ringElement.textContent = ringCount;
 
     const timerElement = document.getElementById("timer");
+
     if (timerElement) {
         const seconds = Math.floor((performance.now() - startTime) / 1000);
+
         timerElement.textContent =
             `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+    }
+}
+
+function saveBest() {
+    if (ringCount > best) {
+        best = ringCount;
+        localStorage.setItem("sonicGreenHillBest", best);
+        if (bestElement) bestElement.textContent = best;
     }
 }
 
@@ -364,35 +604,45 @@ function drawHUD() {
     ctx.font = "bold 16px Arial";
     ctx.fillText("RINGE: " + ringCount, 30, 42);
 
-    if (gameOver) {
-        ctx.fillStyle = "#00101bdd";
+    if (gameOver || won) {
+        ctx.fillStyle = "#00101ddd";
         ctx.fillRect(0, 0, W, H);
 
-        ctx.fillStyle = "#ffe23a";
-        ctx.font = "bold 48px Arial";
         ctx.textAlign = "center";
-        ctx.fillText("GAME OVER", W / 2, H / 2);
+
+        if (won) {
+            ctx.fillStyle = "#ffe23a";
+            ctx.font = "bold 42px Arial";
+            ctx.fillText("LEVEL GESCHAFFT!", W / 2, H / 2 - 25);
+
+            ctx.fillStyle = "#fff";
+            ctx.font = "22px Arial";
+            ctx.fillText("Ringe gesammelt: " + ringCount, W / 2, H / 2 + 15);
+        } else {
+            ctx.fillStyle = "#ff4545";
+            ctx.font = "bold 48px Arial";
+            ctx.fillText("GAME OVER", W / 2, H / 2 - 15);
+        }
 
         ctx.fillStyle = "#fff";
         ctx.font = "20px Arial";
-        ctx.fillText("Drücke R zum Neustarten", W / 2, H / 2 + 40);
-        ctx.textAlign = "left";
+        ctx.fillText("Drücke R zum Neustarten", W / 2, H / 2 + 55);
 
-        if (ringCount > best) {
-            best = ringCount;
-            localStorage.setItem("sonicGreenHillBest", best);
-            if (bestElement) bestElement.textContent = best;
-        }
+        ctx.textAlign = "left";
+        saveBest();
     }
 }
 
 function draw() {
     ctx.clearRect(0, 0, W, H);
+
     drawBackground();
-    drawLoops();
     drawGround();
+    drawLoops();
     drawPlatforms();
+    drawGoal();
     drawRings();
+    drawEnemies();
     drawSonic();
     drawHUD();
 }
